@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => { 
+document.addEventListener('DOMContentLoaded', async () => {
     const sourceSelect = document.getElementById('source-select');
     const destinationSelect = document.getElementById('destination-select');
     const findRouteBtn = document.getElementById('find-route-btn');
@@ -19,10 +19,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const response = await fetch('tn_distance.csv');
             const csvText = await response.text();
-            
+
             const lines = csvText.trim().split(/\r?\n/);
-            lines.slice(1).forEach(line => {
-                const [src, dest, dist, time, lat_src, lon_src, lat_dest, lon_dest] = line.split(",");
+
+            lines.slice(1).forEach((line, idx) => {
+                const parts = line.split(",");
+
+                // Skip empty or malformed rows
+                if (parts.length < 8) {
+                    console.warn(`Skipping invalid row at line ${idx + 2}:`, line);
+                    return;
+                }
+
+                const [src, dest, dist, time, lat_src, lon_src, lat_dest, lon_dest] = parts;
+
+                // Skip header leftovers or invalid data
+                if (isNaN(parseFloat(dist)) || isNaN(parseFloat(time))) {
+                    console.warn(`Skipping non-numeric row at line ${idx + 2}:`, line);
+                    return;
+                }
 
                 allDistricts.add(src);
                 allDistricts.add(dest);
@@ -32,7 +47,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
                 graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
 
-                // Store coordinates only if not already saved
                 if (!coordinates[src]) {
                     coordinates[src] = { x: parseFloat(lon_src), y: parseFloat(lat_src) };
                 }
@@ -68,7 +82,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const prev = {};
         const unvisited = new Set(Object.keys(graph));
 
-        // initialize distances
         Object.keys(graph).forEach(node => {
             distances[node] = Infinity;
             times[node] = Infinity;
@@ -183,7 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         resultContainer.classList.add('hidden');
         errorMessage.classList.add('hidden');
-        
+
         if (!source || !destination || source === destination) {
             errorMessage.textContent = 'Please select a valid source and destination district.';
             errorMessage.classList.remove('hidden');
