@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tamil Nadu District Routes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4 sm:p-8">
+
+    <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-xl w-full max-w-2xl text-center">
+        <h1 class="text-3xl sm:text-4xl font-extrabold text-blue-900 mb-2">Tamil Nadu District Routes</h1>
+        <p class="text-gray-600 mb-6 sm:mb-8 text-sm sm:text-base">Find the shortest path between districts of Tamil Nadu.</p>
+
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
+            <div class="w-full">
+                <label for="source-select" class="block text-gray-700 font-semibold mb-2 text-left">Source District</label>
+                <select id="source-select" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200">
+                    <option value="" disabled selected>Select a district</option>
+                </select>
+            </div>
+            
+            <div class="text-2xl text-blue-500 mt-2 sm:mt-6">
+                <i class="fas fa-route"></i>
+            </div>
+            
+            <div class="w-full">
+                <label for="destination-select" class="block text-gray-700 font-semibold mb-2 text-left">Destination District</label>
+                <select id="destination-select" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200">
+                    <option value="" disabled selected>Select a district</option>
+                </select>
+            </div>
+        </div>
+
+        <button id="find-route-btn" class="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-all duration-200 ease-in-out shadow-lg transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 active:bg-blue-800">
+            Find Shortest Path
+        </button>
+
+        <div id="loading-spinner" class="mt-8 hidden flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+            <p class="mt-4 text-blue-500">Calculating route...</p>
+        </div>
+
+        <div id="result-container" class="mt-8 hidden text-left">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Shortest Path Found!</h2>
+            <div id="path-details" class="bg-gray-50 p-4 rounded-lg shadow-inner">
+                <p class="font-medium text-gray-700 mb-2">
+                    <i class="fas fa-road text-blue-500 mr-2"></i>
+                    <span id="distance-output"></span>
+                </p>
+                <p class="font-medium text-gray-700 mb-2">
+                    <i class="fas fa-clock text-blue-500 mr-2"></i>
+                    <span id="time-output"></span>
+                </p>
+                <p class="font-medium text-gray-700">
+                    <i class="fas fa-map-pin text-blue-500 mr-2"></i>
+                    <span id="path-output"></span>
+                </p>
+            </div>
+            <div class="mt-6 border-2 border-gray-200 rounded-xl overflow-hidden shadow-md">
+                <img id="route-map" src="" alt="Shortest route map" class="w-full h-auto">
+            </div>
+        </div>
+
+        <div id="error-message" class="mt-8 text-red-600 font-medium hidden"></div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const sourceSelect = document.getElementById('source-select');
+            const destinationSelect = document.getElementById('destination-select');
+            const findRouteBtn = document.getElementById('find-route-btn');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const resultContainer = document.getElementById('result-container');
+            const errorMessage = document.getElementById('error-message');
+            const pathOutput = document.getElementById('path-output');
+            const distanceOutput = document.getElementById('distance-output');
+            const timeOutput = document.getElementById('time-output');
+            const routeMap = document.getElementById('route-map');
+
+            async function fetchDistricts() {
+                try {
+                    const response = await fetch('http://127.0.0.1:5000/districts');
+                    if (!response.ok) throw new Error('Failed to fetch districts');
+                    const districts = await response.json();
+                    districts.forEach(district => {
+                        const option1 = document.createElement('option');
+                        option1.value = district;
+                        option1.textContent = district;
+                        sourceSelect.appendChild(option1);
+
+                        const option2 = document.createElement('option');
+                        option2.value = district;
+                        option2.textContent = district;
+                        destinationSelect.appendChild(option2);
+                    });
+                } catch (error) {
+                    console.error('Error fetching districts:', error);
+                    errorMessage.textContent = 'Could not load district data. Please try again later.';
+                    errorMessage.classList.remove('hidden');
+                }
+            }
+
+            findRouteBtn.addEventListener('click', async () => {
+                const source = sourceSelect.value;
+                const destination = destinationSelect.value;
+
+                resultContainer.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                
+                if (!source || !destination || source === destination) {
+                    errorMessage.textContent = 'Please select a valid source and destination district.';
+                    errorMessage.classList.remove('hidden');
+                    return;
+                }
+
+                loadingSpinner.classList.remove('hidden');
+
+                try {
+                    const response = await fetch(`http://127.0.0.1:5000/shortest-path?source=${source}&destination=${destination}`);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Unknown error occurred.');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    pathOutput.textContent = data.path.join(' → ');
+                    distanceOutput.textContent = `Total Distance: ${data.distance.toFixed(2)} km`;
+                    timeOutput.textContent = `Total Time: ${data.time.toFixed(2)} hours`;
+                    
+                    // Decode the Base64 image string and set it as the source
+                    routeMap.src = `data:image/png;base64,${data.image}`;
+                    
+                    resultContainer.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error('Error finding route:', error);
+                    errorMessage.textContent = `An error occurred: ${error.message}`;
+                    errorMessage.classList.remove('hidden');
+                } finally {
+                    loadingSpinner.classList.add('hidden');
+                }
+            });
+
+            fetchDistricts();
+        });
+    </script>
+</body>
+</html>
