@@ -94,7 +94,6 @@
 
             async function loadData() {
                 try {
-                    // Load the single combined data file
                     const response = await fetch('tn_distance.csv');
                     const csvText = await response.text();
                     
@@ -102,18 +101,15 @@
                     lines.slice(1).forEach(line => {
                         const [src, dest, dist, time, lat, lon] = line.split(",");
                         
-                        // Build graph with edges and weights
                         if (!graph[src]) graph[src] = [];
                         if (!graph[dest]) graph[dest] = [];
                         graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
                         graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
 
-                        // Store coordinates for visualization
                         coordinates[src] = { x: parseFloat(lon), y: parseFloat(lat) };
                         coordinates[dest] = { x: parseFloat(lon), y: parseFloat(lat) };
                     });
 
-                    // Populate dropdowns with unique district names
                     allDistricts = Object.keys(graph).sort();
                     allDistricts.forEach(district => {
                         const option1 = document.createElement('option');
@@ -139,7 +135,7 @@
                 const distances = { [source]: 0 };
                 const prev = { [source]: null };
                 const unvisited = new Set(Object.keys(graph));
-                const allDistances = { [source]: 0 }; // Store distances from source to all nodes
+                const allDistances = { [source]: 0 };
 
                 while (unvisited.size > 0) {
                     let minNode = null;
@@ -235,22 +231,8 @@
                             }
                         },
                         scales: {
-                            x: {
-                                type: 'linear',
-                                display: false,
-                                title: {
-                                    display: true,
-                                    text: 'Longitude'
-                                }
-                            },
-                            y: {
-                                type: 'linear',
-                                display: false,
-                                title: {
-                                    display: true,
-                                    text: 'Latitude'
-                                }
-                            }
+                            x: { display: false },
+                            y: { display: false }
                         }
                     }
                 };
@@ -280,8 +262,8 @@
                     }
 
                     pathOutput.textContent = result.path.join(' → ');
-                    distanceOutput.textContent = Total Distance: ${result.distance.toFixed(2)} km;
-                    
+                    distanceOutput.textContent = `Total Distance: ${result.distance.toFixed(2)} km`;
+
                     let totalTime = 0;
                     for (let i = 0; i < result.path.length - 1; i++) {
                         const currentNode = result.path[i];
@@ -291,13 +273,13 @@
                             totalTime += edge.time;
                         }
                     }
-                    timeOutput.textContent = Estimated Time: ${totalTime.toFixed(2)} hours;
+                    timeOutput.textContent = `Estimated Time: ${totalTime.toFixed(2)} hours`;
 
                     createChart(source, destination, result.path, result.distance);
                     resultContainer.classList.remove('hidden');
                 } catch (error) {
                     console.error('Error finding route:', error);
-                    errorMessage.textContent = An error occurred: ${error.message};
+                    errorMessage.textContent = `An error occurred: ${error.message}`;
                     errorMessage.classList.remove('hidden');
                 } finally {
                     loadingSpinner.classList.add('hidden');
