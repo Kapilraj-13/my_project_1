@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', async () => { 
     const sourceSelect = document.getElementById('source-select');
     const destinationSelect = document.getElementById('destination-select');
     const findRouteBtn = document.getElementById('find-route-btn');
@@ -17,30 +17,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadData() {
         try {
-            // Load the single combined data file
             const response = await fetch('tn_distance.csv');
             const csvText = await response.text();
             
             const lines = csvText.trim().split(/\r?\n/);
             lines.slice(1).forEach(line => {
                 const [src, dest, dist, time, lat_src, lon_src, lat_dest, lon_dest] = line.split(",");
-                
-                // Add districts to the set to get unique names
+
                 allDistricts.add(src);
                 allDistricts.add(dest);
 
-                // Build graph with edges and weights
                 if (!graph[src]) graph[src] = [];
                 if (!graph[dest]) graph[dest] = [];
                 graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
                 graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
-                
-                // Store coordinates for visualization
-                coordinates[src] = { x: parseFloat(lon_src), y: parseFloat(lat_src) };
-                coordinates[dest] = { x: parseFloat(lon_dest), y: parseFloat(lat_dest) };
+
+                // Store coordinates only if not already saved
+                if (!coordinates[src]) {
+                    coordinates[src] = { x: parseFloat(lon_src), y: parseFloat(lat_src) };
+                }
+                if (!coordinates[dest]) {
+                    coordinates[dest] = { x: parseFloat(lon_dest), y: parseFloat(lat_dest) };
+                }
             });
 
-            // Populate dropdowns with unique, sorted district names
             const sortedDistricts = Array.from(allDistricts).sort();
             sortedDistricts.forEach(district => {
                 const option1 = document.createElement('option');
@@ -63,48 +63,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function dijkstra(source, target) {
-        const distances = { [source]: 0 };
-        const times = { [source]: 0 };
-        const prev = { [source]: null };
+        const distances = {};
+        const times = {};
+        const prev = {};
         const unvisited = new Set(Object.keys(graph));
-        const allDistances = { [source]: 0 };
+
+        // initialize distances
+        Object.keys(graph).forEach(node => {
+            distances[node] = Infinity;
+            times[node] = Infinity;
+        });
+        distances[source] = 0;
+        times[source] = 0;
 
         while (unvisited.size > 0) {
             let minNode = null;
             unvisited.forEach(node => {
-                if (minNode === null || allDistances[node] < allDistances[minNode]) {
+                if (minNode === null || distances[node] < distances[minNode]) {
                     minNode = node;
                 }
             });
 
             if (minNode === target) break;
-            if (allDistances[minNode] === undefined) break;
+            if (distances[minNode] === Infinity) break;
 
             unvisited.delete(minNode);
 
-            if (graph[minNode]) {
-                graph[minNode].forEach(neighbor => {
-                    const newDist = allDistances[minNode] + neighbor.dist;
-                    if (allDistances[neighbor.node] === undefined || newDist < allDistances[neighbor.node]) {
-                        allDistances[neighbor.node] = newDist;
-                        distances[neighbor.node] = newDist;
-                        prev[neighbor.node] = minNode;
+            graph[minNode].forEach(neighbor => {
+                const newDist = distances[minNode] + neighbor.dist;
+                const newTime = times[minNode] + neighbor.time;
+                if (newDist < distances[neighbor.node]) {
+                    distances[neighbor.node] = newDist;
+                    times[neighbor.node] = newTime;
+                    prev[neighbor.node] = minNode;
+                }
+            });
+        }
 
-                        // Recalculate time based on the new shortest path
-                        const newTime = times[minNode] + neighbor.time;
-                        times[neighbor.node] = newTime;
-                    }
-                });
-            }
+        if (distances[target] === Infinity) {
+            return { path: null, distance: Infinity, time: Infinity };
         }
 
         const path = [];
         let u = target;
-        while (prev[u] !== undefined) {
+        while (u !== undefined) {
             path.unshift(u);
             u = prev[u];
         }
-        path.unshift(source);
 
         return { path, distance: distances[target], time: times[target] };
     }
@@ -156,24 +161,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                const label = context.dataset.data[context.dataIndex].label || '';
-                                return label;
+                                return context.dataset.data[context.dataIndex].label || '';
                             }
                         }
                     },
-                    legend: {
-                        display: false
-                    }
+                    legend: { display: false }
                 },
                 scales: {
-                    x: {
-                        type: 'linear',
-                        display: false,
-                    },
-                    y: {
-                        type: 'linear',
-                        display: false,
-                    }
+                    x: { type: 'linear', display: false },
+                    y: { type: 'linear', display: false }
                 }
             }
         };
