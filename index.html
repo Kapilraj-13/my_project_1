@@ -41,6 +41,17 @@
             </div>
         </div>
 
+        <div class="flex justify-center gap-6 mb-6">
+            <div class="flex items-center">
+                <input type="radio" id="by-distance" name="path-type" value="distance" class="form-radio h-4 w-4 text-blue-600 transition duration-150 ease-in-out" checked>
+                <label for="by-distance" class="ml-2 text-gray-700">Shortest Distance</label>
+            </div>
+            <div class="flex items-center">
+                <input type="radio" id="by-time" name="path-type" value="time" class="form-radio h-4 w-4 text-blue-600 transition duration-150 ease-in-out">
+                <label for="by-time" class="ml-2 text-gray-700">Shortest Time</label>
+            </div>
+        </div>
+
         <button id="find-route-btn" class="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-all duration-200 ease-in-out shadow-lg transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 active:bg-blue-800">
             Find Shortest Path
         </button>
@@ -86,10 +97,11 @@
             const distanceOutput = document.getElementById('distance-output');
             const timeOutput = document.getElementById('time-output');
             const canvas = document.getElementById('route-map');
+            const pathTypeInputs = document.querySelectorAll('input[name="path-type"]');
 
             let graph = {};
             let coordinates = {};
-            let allDistricts = [];
+            let allDistricts = new Set();
             let myChart = null;
 
             async function loadData() {
@@ -99,19 +111,22 @@
                     
                     const lines = csvText.trim().split(/\r?\n/);
                     lines.slice(1).forEach(line => {
-                        const [src, dest, dist, time, lat, lon] = line.split(",");
+                        const [src, dest, dist, time, lat_src, lon_src, lat_dest, lon_dest] = line.split(",");
                         
+                        allDistricts.add(src);
+                        allDistricts.add(dest);
+
                         if (!graph[src]) graph[src] = [];
                         if (!graph[dest]) graph[dest] = [];
                         graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
                         graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
-
-                        coordinates[src] = { x: parseFloat(lon), y: parseFloat(lat) };
-                        coordinates[dest] = { x: parseFloat(lon), y: parseFloat(lat) };
+                        
+                        coordinates[src] = { x: parseFloat(lon_src), y: parseFloat(lat_src) };
+                        coordinates[dest] = { x: parseFloat(lon_dest), y: parseFloat(lat_dest) };
                     });
 
-                    allDistricts = Object.keys(graph).sort();
-                    allDistricts.forEach(district => {
+                    const sortedDistricts = Array.from(allDistricts).sort();
+                    sortedDistricts.forEach(district => {
                         const option1 = document.createElement('option');
                         option1.value = district;
                         option1.textContent = district;
@@ -131,32 +146,46 @@
                 }
             }
 
-            function dijkstra(source, target) {
+            function dijkstra(source, target, weightType) {
                 const distances = { [source]: 0 };
                 const prev = { [source]: null };
                 const unvisited = new Set(Object.keys(graph));
                 const allDistances = { [source]: 0 };
+                const times = {};
+                const weights = {};
+
+                Object.keys(graph).forEach(node => {
+                    distances[node] = Infinity;
+                    times[node] = Infinity;
+                });
+                distances[source] = 0;
+                times[source] = 0;
 
                 while (unvisited.size > 0) {
                     let minNode = null;
                     unvisited.forEach(node => {
-                        if (minNode === null || allDistances[node] < allDistances[minNode]) {
+                        if (minNode === null || distances[node] < distances[minNode]) {
                             minNode = node;
                         }
                     });
 
                     if (minNode === target) break;
-                    if (allDistances[minNode] === Infinity) break;
+                    if (distances[minNode] === Infinity) break;
 
                     unvisited.delete(minNode);
 
                     if (graph[minNode]) {
                         graph[minNode].forEach(neighbor => {
-                            const newDist = allDistances[minNode] + neighbor.dist;
-                            if (!allDistances[neighbor.node] || newDist < allDistances[neighbor.node]) {
-                                allDistances[neighbor.node] = newDist;
+                            const newDist = distances[minNode] + (weightType === 'distance' ? neighbor.dist : neighbor.time);
+                            
+                            if (newDist < distances[neighbor.node]) {
                                 distances[neighbor.node] = newDist;
                                 prev[neighbor.node] = minNode;
+                                
+                                // To correctly calculate the path time, we need to sum up the time weights
+                                // of the edges on the shortest path for the distance
+                                const newTime = times[minNode] + neighbor.time;
+                                times[neighbor.node] = newTime;
                             }
                         });
                     }
@@ -171,16 +200,17 @@
                 path.unshift(source);
 
                 const finalDistance = distances[target];
-                return { path, distance: finalDistance };
+                const finalTime = times[target];
+                return { path, distance: finalDistance, time: finalTime };
             }
 
-            function createChart(source, destination, path, pathDistance) {
+            function createChart(path) {
                 if (myChart) {
                     myChart.destroy();
                 }
 
                 const pathData = path.map(district => coordinates[district]);
-                const allPoints = allDistricts.map(district => ({
+                const allPoints = Array.from(allDistricts).map(district => ({
                     x: coordinates[district].x,
                     y: coordinates[district].y,
                     label: district
@@ -243,6 +273,7 @@
             findRouteBtn.addEventListener('click', () => {
                 const source = sourceSelect.value;
                 const destination = destinationSelect.value;
+                const pathType = document.querySelector('input[name="path-type"]:checked').value;
 
                 resultContainer.classList.add('hidden');
                 errorMessage.classList.add('hidden');
@@ -256,26 +287,16 @@
                 loadingSpinner.classList.remove('hidden');
 
                 try {
-                    const result = dijkstra(source, destination);
-                    if (!result.path || result.distance === Infinity) {
+                    const result = dijkstra(source, destination, pathType);
+                    if (!result.path || result.path.length < 2 || (result.distance === Infinity && result.time === Infinity)) {
                         throw new Error("No path found between districts.");
                     }
 
                     pathOutput.textContent = result.path.join(' → ');
                     distanceOutput.textContent = `Total Distance: ${result.distance.toFixed(2)} km`;
+                    timeOutput.textContent = `Estimated Time: ${result.time.toFixed(2)} hours`;
 
-                    let totalTime = 0;
-                    for (let i = 0; i < result.path.length - 1; i++) {
-                        const currentNode = result.path[i];
-                        const nextNode = result.path[i+1];
-                        const edge = graph[currentNode].find(e => e.node === nextNode);
-                        if (edge) {
-                            totalTime += edge.time;
-                        }
-                    }
-                    timeOutput.textContent = `Estimated Time: ${totalTime.toFixed(2)} hours`;
-
-                    createChart(source, destination, result.path, result.distance);
+                    createChart(result.path);
                     resultContainer.classList.remove('hidden');
                 } catch (error) {
                     console.error('Error finding route:', error);
