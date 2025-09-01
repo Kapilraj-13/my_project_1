@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -65,9 +65,6 @@
                     <span id="path-output"></span>
                 </p>
             </div>
-            <div class="mt-6 border-2 border-gray-200 rounded-xl overflow-hidden shadow-md">
-                <img id="route-map" src="" alt="Shortest route map" class="w-full h-auto">
-            </div>
         </div>
 
         <div id="error-message" class="mt-8 text-red-600 font-medium hidden"></div>
@@ -85,13 +82,26 @@
             const pathOutput = document.getElementById('path-output');
             const distanceOutput = document.getElementById('distance-output');
             const timeOutput = document.getElementById('time-output');
-            const routeMap = document.getElementById('route-map');
+
+            let graph = {};
 
             async function fetchDistricts() {
                 try {
-                    const response = await fetch('http://127.0.0.1:5000/districts');
-                    if (!response.ok) throw new Error('Failed to fetch districts');
-                    const districts = await response.json();
+                    const response = await fetch('tn_distance.csv');
+                    const csvText = await response.text();
+
+                    const lines = csvText.trim().split(/\r?\n/);
+                    const header = lines[0].split(",");
+
+                    lines.slice(1).forEach(line => {
+                        const [src, dest, dist, time] = line.split(",");
+                        if (!graph[src]) graph[src] = [];
+                        if (!graph[dest]) graph[dest] = [];
+                        graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
+                        graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
+                    });
+
+                    const districts = Object.keys(graph).sort();
                     districts.forEach(district => {
                         const option1 = document.createElement('option');
                         option1.value = district;
@@ -104,13 +114,48 @@
                         destinationSelect.appendChild(option2);
                     });
                 } catch (error) {
-                    console.error('Error fetching districts:', error);
+                    console.error('Error loading CSV:', error);
                     errorMessage.textContent = 'Could not load district data. Please try again later.';
                     errorMessage.classList.remove('hidden');
                 }
             }
 
-            findRouteBtn.addEventListener('click', async () => {
+            function dijkstra(source, target) {
+                const distances = {};
+                const prev = {};
+                const pq = new Set(Object.keys(graph));
+
+                Object.keys(graph).forEach(node => distances[node] = Infinity);
+                distances[source] = 0;
+
+                while (pq.size > 0) {
+                    let u = null;
+                    pq.forEach(node => {
+                        if (u === null || distances[node] < distances[u]) u = node;
+                    });
+                    pq.delete(u);
+
+                    if (u === target) break;
+
+                    graph[u].forEach(edge => {
+                        const alt = distances[u] + edge.dist;
+                        if (alt < distances[edge.node]) {
+                            distances[edge.node] = alt;
+                            prev[edge.node] = u;
+                        }
+                    });
+                }
+
+                const path = [];
+                let u = target;
+                while (u) {
+                    path.unshift(u);
+                    u = prev[u];
+                }
+                return { path, distance: distances[target] };
+            }
+
+            findRouteBtn.addEventListener('click', () => {
                 const source = sourceSelect.value;
                 const destination = destinationSelect.value;
 
@@ -126,24 +171,16 @@
                 loadingSpinner.classList.remove('hidden');
 
                 try {
-                    const response = await fetch(`http://127.0.0.1:5000/shortest-path?source=${source}&destination=${destination}`);
-                    
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Unknown error occurred.');
+                    const result = dijkstra(source, destination);
+                    if (!result.path.length || result.distance === Infinity) {
+                        throw new Error("No path found between districts.");
                     }
-                    
-                    const data = await response.json();
-                    
-                    pathOutput.textContent = data.path.join(' → ');
-                    distanceOutput.textContent = `Total Distance: ${data.distance.toFixed(2)} km`;
-                    timeOutput.textContent = `Total Time: ${data.time.toFixed(2)} hours`;
-                    
-                    // Decode the Base64 image string and set it as the source
-                    routeMap.src = `data:image/png;base64,${data.image}`;
-                    
-                    resultContainer.classList.remove('hidden');
 
+                    pathOutput.textContent = result.path.join(' → ');
+                    distanceOutput.textContent = `Total Distance: ${result.distance.toFixed(2)} km`;
+                    timeOutput.textContent = `Estimated Time: ${(result.distance / 40).toFixed(2)} hours`; // assume 40 km/h
+
+                    resultContainer.classList.remove('hidden');
                 } catch (error) {
                     console.error('Error finding route:', error);
                     errorMessage.textContent = `An error occurred: ${error.message}`;
