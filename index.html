@@ -1,10 +1,11 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tamil Nadu District Routes</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
@@ -65,10 +66,12 @@
                     <span id="path-output"></span>
                 </p>
             </div>
+            <div class="mt-6 border-2 border-gray-200 rounded-xl overflow-hidden shadow-md">
+                <canvas id="route-map"></canvas>
+            </div>
         </div>
 
         <div id="error-message" class="mt-8 text-red-600 font-medium hidden"></div>
-
     </div>
 
     <script>
@@ -82,27 +85,37 @@
             const pathOutput = document.getElementById('path-output');
             const distanceOutput = document.getElementById('distance-output');
             const timeOutput = document.getElementById('time-output');
+            const canvas = document.getElementById('route-map');
 
             let graph = {};
+            let coordinates = {};
+            let allDistricts = [];
+            let myChart = null;
 
-            async function fetchDistricts() {
+            async function loadData() {
                 try {
+                    // Load the single combined data file
                     const response = await fetch('tn_distance.csv');
                     const csvText = await response.text();
-
+                    
                     const lines = csvText.trim().split(/\r?\n/);
-                    const header = lines[0].split(",");
-
                     lines.slice(1).forEach(line => {
-                        const [src, dest, dist, time] = line.split(",");
+                        const [src, dest, dist, time, lat, lon] = line.split(",");
+                        
+                        // Build graph with edges and weights
                         if (!graph[src]) graph[src] = [];
                         if (!graph[dest]) graph[dest] = [];
                         graph[src].push({ node: dest, dist: parseFloat(dist), time: parseFloat(time) });
                         graph[dest].push({ node: src, dist: parseFloat(dist), time: parseFloat(time) });
+
+                        // Store coordinates for visualization
+                        coordinates[src] = { x: parseFloat(lon), y: parseFloat(lat) };
+                        coordinates[dest] = { x: parseFloat(lon), y: parseFloat(lat) };
                     });
 
-                    const districts = Object.keys(graph).sort();
-                    districts.forEach(district => {
+                    // Populate dropdowns with unique district names
+                    allDistricts = Object.keys(graph).sort();
+                    allDistricts.forEach(district => {
                         const option1 = document.createElement('option');
                         option1.value = district;
                         option1.textContent = district;
@@ -113,46 +126,136 @@
                         option2.textContent = district;
                         destinationSelect.appendChild(option2);
                     });
+
+                    console.log("Data loaded successfully.");
                 } catch (error) {
-                    console.error('Error loading CSV:', error);
-                    errorMessage.textContent = 'Could not load district data. Please try again later.';
+                    console.error('Error loading data:', error);
+                    errorMessage.textContent = 'Could not load data file. Please ensure tn_distance.csv is in the same directory.';
                     errorMessage.classList.remove('hidden');
                 }
             }
 
             function dijkstra(source, target) {
-                const distances = {};
-                const prev = {};
-                const pq = new Set(Object.keys(graph));
+                const distances = { [source]: 0 };
+                const prev = { [source]: null };
+                const unvisited = new Set(Object.keys(graph));
+                const allDistances = { [source]: 0 }; // Store distances from source to all nodes
 
-                Object.keys(graph).forEach(node => distances[node] = Infinity);
-                distances[source] = 0;
-
-                while (pq.size > 0) {
-                    let u = null;
-                    pq.forEach(node => {
-                        if (u === null || distances[node] < distances[u]) u = node;
-                    });
-                    pq.delete(u);
-
-                    if (u === target) break;
-
-                    graph[u].forEach(edge => {
-                        const alt = distances[u] + edge.dist;
-                        if (alt < distances[edge.node]) {
-                            distances[edge.node] = alt;
-                            prev[edge.node] = u;
+                while (unvisited.size > 0) {
+                    let minNode = null;
+                    unvisited.forEach(node => {
+                        if (minNode === null || allDistances[node] < allDistances[minNode]) {
+                            minNode = node;
                         }
                     });
+
+                    if (minNode === target) break;
+                    if (allDistances[minNode] === Infinity) break;
+
+                    unvisited.delete(minNode);
+
+                    if (graph[minNode]) {
+                        graph[minNode].forEach(neighbor => {
+                            const newDist = allDistances[minNode] + neighbor.dist;
+                            if (!allDistances[neighbor.node] || newDist < allDistances[neighbor.node]) {
+                                allDistances[neighbor.node] = newDist;
+                                distances[neighbor.node] = newDist;
+                                prev[neighbor.node] = minNode;
+                            }
+                        });
+                    }
                 }
 
                 const path = [];
                 let u = target;
-                while (u) {
+                while (prev[u] !== undefined) {
                     path.unshift(u);
                     u = prev[u];
                 }
-                return { path, distance: distances[target] };
+                path.unshift(source);
+
+                const finalDistance = distances[target];
+                return { path, distance: finalDistance };
+            }
+
+            function createChart(source, destination, path, pathDistance) {
+                if (myChart) {
+                    myChart.destroy();
+                }
+
+                const pathData = path.map(district => coordinates[district]);
+                const allPoints = allDistricts.map(district => ({
+                    x: coordinates[district].x,
+                    y: coordinates[district].y,
+                    label: district
+                }));
+
+                const data = {
+                    datasets: [
+                        {
+                            label: 'All Districts',
+                            data: allPoints,
+                            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            showLine: false,
+                        },
+                        {
+                            label: 'Shortest Path',
+                            data: pathData,
+                            borderColor: 'rgb(37, 99, 235)',
+                            borderWidth: 3,
+                            fill: false,
+                            pointRadius: 6,
+                            pointBackgroundColor: 'rgb(239, 68, 68)',
+                            pointBorderColor: 'white',
+                            pointBorderWidth: 2,
+                            showLine: true,
+                        }
+                    ]
+                };
+
+                const config = {
+                    type: 'scatter',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.dataset.data[context.dataIndex].label || '';
+                                        return label;
+                                    }
+                                }
+                            },
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                display: false,
+                                title: {
+                                    display: true,
+                                    text: 'Longitude'
+                                }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: false,
+                                title: {
+                                    display: true,
+                                    text: 'Latitude'
+                                }
+                            }
+                        }
+                    }
+                };
+
+                myChart = new Chart(canvas, config);
             }
 
             findRouteBtn.addEventListener('click', () => {
@@ -172,25 +275,36 @@
 
                 try {
                     const result = dijkstra(source, destination);
-                    if (!result.path.length || result.distance === Infinity) {
+                    if (!result.path || result.distance === Infinity) {
                         throw new Error("No path found between districts.");
                     }
 
                     pathOutput.textContent = result.path.join(' → ');
-                    distanceOutput.textContent = `Total Distance: ${result.distance.toFixed(2)} km`;
-                    timeOutput.textContent = `Estimated Time: ${(result.distance / 40).toFixed(2)} hours`; // assume 40 km/h
+                    distanceOutput.textContent = Total Distance: ${result.distance.toFixed(2)} km;
+                    
+                    let totalTime = 0;
+                    for (let i = 0; i < result.path.length - 1; i++) {
+                        const currentNode = result.path[i];
+                        const nextNode = result.path[i+1];
+                        const edge = graph[currentNode].find(e => e.node === nextNode);
+                        if (edge) {
+                            totalTime += edge.time;
+                        }
+                    }
+                    timeOutput.textContent = Estimated Time: ${totalTime.toFixed(2)} hours;
 
+                    createChart(source, destination, result.path, result.distance);
                     resultContainer.classList.remove('hidden');
                 } catch (error) {
                     console.error('Error finding route:', error);
-                    errorMessage.textContent = `An error occurred: ${error.message}`;
+                    errorMessage.textContent = An error occurred: ${error.message};
                     errorMessage.classList.remove('hidden');
                 } finally {
                     loadingSpinner.classList.add('hidden');
                 }
             });
 
-            fetchDistricts();
+            loadData();
         });
     </script>
 </body>
